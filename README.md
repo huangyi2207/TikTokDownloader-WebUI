@@ -1,4 +1,4 @@
-# DouK Web UI
+# TikTokDownloader Web UI
 
 面向 [JoeanAmier/TikTokDownloader](https://github.com/JoeanAmier/TikTokDownloader) **API 模式**的本地可视化 Web 界面。
 
