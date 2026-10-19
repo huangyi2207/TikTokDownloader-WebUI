@@ -65,6 +65,11 @@
         </button>
 
         <div class="nav-label">系统</div>
+        <button class="nav-item" data-nav="tasks" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bolt"/></svg>
+          <span>服务端任务</span>
+          <span class="nav-badge" id="tasks-badge" hidden>0</span>
+        </button>
         <button class="nav-item" data-nav="settings" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg>
           <span>全局配置</span>
@@ -581,6 +586,24 @@
           </form>
 
           <div class="result-stack" id="search-result"></div>
+        </section>
+
+        <!-- ============================================================ 服务端任务 -->
+        <section class="view" data-view="tasks">
+          <div class="page-head">
+            <div>
+              <h2>服务端任务</h2>
+              <p>查看「服务端下载」提交的后台任务：运行状态、保存目录、耗时与日志。</p>
+            </div>
+            <div class="page-actions">
+              <span class="pill" id="tasks-summary">—</span>
+              <button class="btn btn-ghost" id="tasks-refresh" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+                刷新
+              </button>
+            </div>
+          </div>
+          <div id="tasks-list"></div>
         </section>
 
         <!-- ============================================================ 全局配置 -->

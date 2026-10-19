@@ -15,6 +15,7 @@ const VIEW_TITLES = {
   live: '直播解析',
   comment: '评论采集',
   search: '搜索发现',
+  tasks: '服务端任务',
   settings: '全局配置',
 };
 
@@ -228,7 +229,314 @@ function downloadMedia(url, name) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  toast('已开始下载', 'success');
+  toast('已开始浏览器下载', 'success');
+}
+
+function serverDownloadTarget(item) {
+  const share = String(item?.share_url || '').trim();
+  if (/^https?:\/\//i.test(share)) return share;
+  const id = String(item?.id || '').trim();
+  if (!/^\d{19}$/.test(id)) return '';
+  if (state.platform === 'tiktok') {
+    const user = String(item?.unique_id || '').trim().replace(/^@/, '');
+    return user ? `https://www.tiktok.com/@${user}/video/${id}` : '';
+  }
+  return `https://www.douyin.com/video/${id}`;
+}
+
+function accountServerFolder(items, tab) {
+  const first = (items || []).find((item) => item && item.uid && item.nickname);
+  if (!first) return '';
+  const suffix =
+    tab === 'favorite' ? '喜欢作品' : tab === 'collection' ? '收藏作品' : '发布作品';
+  return `UID${String(first.uid).trim()}_${sanitizeName(first.nickname)}_${suffix}`;
+}
+
+async function requestServerDownload(payload, button, label = '服务端下载') {
+  if (button) setButtonBusy(button, true, '提交中…');
+  try {
+    const response = await fetch('/server-download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data?.detail || `HTTP ${response.status}`);
+    }
+    const folder = data.folder ? ` / ${data.folder}` : '';
+    toast(
+      `已提交${label}${data.count > 1 ? `（${data.count} 个作品）` : ''}${
+        data.root ? `，保存到 ${data.root}${folder}` : ''
+      }`,
+      'success',
+      7000,
+    );
+    pollServerDownload(data.job_id, data.log);
+    loadServerJobs({ silent: true });
+  } catch (error) {
+    toast(`${label}提交失败：${error?.message || error}`, 'error', 7000);
+  } finally {
+    if (button) setButtonBusy(button, false);
+  }
+}
+
+function submitServerDownload(item, button = null) {
+  const url = serverDownloadTarget(item);
+  if (!url) {
+    toast('缺少作品链接，无法提交服务端下载', 'error');
+    return;
+  }
+  return requestServerDownload({ url }, button);
+}
+
+function submitServerBatchDownload(urls, folder, button = null) {
+  const valid = [
+    ...new Set(
+      (urls || []).filter((url) => /^https?:\/\//i.test(String(url || ''))),
+    ),
+  ];
+  if (!valid.length) {
+    toast('没有可提交服务端下载的作品', 'error');
+    return;
+  }
+  return requestServerDownload(
+    { urls: valid, folder: folder || '' },
+    button,
+    '服务端批量下载',
+  );
+}
+
+/* ----------------------------------------------------------- server tasks */
+
+let tasksTimer = null;
+
+function formatJobDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0));
+  if (value < 60) return `${value} 秒`;
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  if (minutes < 60) return `${minutes} 分 ${rest} 秒`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} 小时 ${minutes % 60} 分`;
+}
+
+function formatJobTime(seconds) {
+  const date = new Date(Number(seconds) * 1000);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function jobStateLabel(state) {
+  if (state === 'running') return '运行中';
+  if (state === 'done') return '已完成';
+  if (state === 'failed') return '失败';
+  return state || '未知';
+}
+
+function updateTasksBadge(running) {
+  const badge = $('#tasks-badge');
+  if (!badge) return;
+  const count = Number(running) || 0;
+  badge.hidden = count <= 0;
+  badge.textContent = count > 99 ? '99+' : String(count);
+}
+
+function renderServerJob(job) {
+  const state = job.state || 'unknown';
+  const folder = String(job.folder || '');
+  const root = String(job.root || '');
+  const count = Number(job.count) || 0;
+  const title = folder || (count > 1 ? '批量作品' : '单个作品');
+  const location = root ? `${root}${folder ? ` / ${folder}` : ''}` : '—';
+  const firstUrl = String(job.first_url || '');
+  return `<article class="task-row ${esc(state)}">
+    <span class="task-state ${esc(state)}"><span class="task-dot"></span>${esc(
+      jobStateLabel(state),
+    )}</span>
+    <div class="task-main">
+      <div class="task-title">
+        <strong title="${esc(title)}">${esc(title)}</strong>
+        <span class="badge">${esc(count)} 个作品</span>
+      </div>
+      <div class="task-meta">
+        <span title="${esc(location)}"><svg viewBox="0 0 24 24"><use href="#i-folder"/></svg>${esc(location)}</span>
+        <span title="${esc(formatJobTime(job.started))}"><svg viewBox="0 0 24 24"><use href="#i-clock"/></svg>${esc(
+          formatJobTime(job.started),
+        )} · ${state === 'running' ? '已运行' : '耗时'} ${esc(
+          formatJobDuration(job.elapsed),
+        )}</span>
+        ${
+          firstUrl
+            ? `<span class="task-url" title="${esc(firstUrl)}"><svg viewBox="0 0 24 24"><use href="#i-link"/></svg>${esc(
+                shortText(firstUrl, 60),
+              )}</span>`
+            : ''
+        }
+        ${
+          job.code !== null && job.code !== undefined
+            ? `<span>退出码 ${esc(job.code)}</span>`
+            : ''
+        }
+      </div>
+    </div>
+    <div class="task-actions">
+      <button type="button" class="btn btn-ghost btn-xs" data-task-log="${esc(
+        job.job_id,
+      )}">
+        <svg viewBox="0 0 24 24"><use href="#i-doc"/></svg>日志
+      </button>
+    </div>
+  </article>`;
+}
+
+function renderServerJobs(payload) {
+  const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+  updateTasksBadge(payload?.running);
+  const summary = $('#tasks-summary');
+  if (summary) {
+    summary.textContent = `运行中 ${payload?.running || 0} · 已完成 ${
+      payload?.done || 0
+    } · 失败 ${payload?.failed || 0}`;
+  }
+  const list = $('#tasks-list');
+  if (!list) return;
+  if (!jobs.length) {
+    list.innerHTML = emptyState(
+      '还没有服务端下载任务',
+      '在作品详情或批量下载弹窗中点击「服务端下载」，任务会显示在这里。',
+      'i-bolt',
+    );
+    return;
+  }
+  list.innerHTML = `<div class="task-list">${jobs.map(renderServerJob).join('')}</div>`;
+  list.querySelectorAll('[data-task-log]').forEach((button) => {
+    button.addEventListener('click', () => showServerJobLog(button.dataset.taskLog));
+  });
+}
+
+async function loadServerJobs({ silent = false } = {}) {
+  const list = $('#tasks-list');
+  if (!silent && list && state.view === 'tasks') {
+    list.innerHTML = `<div class="settings-skeleton">
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+    </div>`;
+  }
+  try {
+    const response = await fetch('/server-download/jobs', {
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('任务接口不可用，请重启 Web UI 服务（server.py）');
+      }
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload?.detail || `HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    renderServerJobs(payload);
+    return payload;
+  } catch (error) {
+    updateTasksBadge(0);
+    if (!silent && list && state.view === 'tasks') {
+      list.innerHTML = renderError(error);
+    }
+    return null;
+  }
+}
+
+function startTasksPolling() {
+  stopTasksPolling();
+  loadServerJobs();
+  tasksTimer = window.setInterval(() => {
+    if (state.view === 'tasks') loadServerJobs({ silent: true });
+  }, 4000);
+}
+
+function stopTasksPolling() {
+  if (tasksTimer) {
+    window.clearInterval(tasksTimer);
+    tasksTimer = null;
+  }
+}
+
+async function loadServerJobLog(jobId) {
+  const body = $('#modal-body');
+  if (!body || $('#modal')?.hidden) return;
+  body.innerHTML = `<div class="task-log-loading"><span class="spinner"></span>加载日志…</div>`;
+  try {
+    const response = await fetch(
+      `/server-download/log?job_id=${encodeURIComponent(jobId)}`,
+      { headers: { Accept: 'application/json' } },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.detail || `HTTP ${response.status}`);
+    }
+    if ($('#modal')?.hidden) return;
+    const pathNode = $('#task-log-path');
+    if (pathNode) pathNode.textContent = payload.log || '';
+    body.innerHTML = `<pre class="task-log">${esc(payload.text || '（日志为空）')}</pre>`;
+    if (payload.truncated) {
+      body.insertAdjacentHTML(
+        'beforeend',
+        '<p class="hint">日志过长，仅显示最后 64 KB。</p>',
+      );
+    }
+  } catch (error) {
+    if ($('#modal')?.hidden) return;
+    body.innerHTML = renderError(error);
+  }
+}
+
+function showServerJobLog(jobId) {
+  openModal({
+    title: '任务日志',
+    wide: true,
+    body: `<div class="task-log-loading"><span class="spinner"></span>加载日志…</div>`,
+    footer: `<span class="hint task-log-path" id="task-log-path"></span>
+      <div class="spacer"></div>
+      <button type="button" class="btn btn-ghost" data-close>关闭</button>
+      <button type="button" class="btn" id="task-log-refresh">
+        <svg viewBox="0 0 24 24"><use href="#i-refresh"/></svg>刷新
+      </button>`,
+  });
+  $('#task-log-refresh')?.addEventListener('click', () => loadServerJobLog(jobId));
+  loadServerJobLog(jobId);
+}
+
+function pollServerDownload(jobId, logPath) {
+  if (!jobId) return;
+  const deadline = Date.now() + 30 * 60 * 1000;
+  const tick = () => {
+    if (Date.now() > deadline) return;
+    fetch(`/server-download/status?job_id=${encodeURIComponent(jobId)}`, {
+      headers: { Accept: 'application/json' },
+    })
+      .then((response) => response.json().then((payload) => ({ response, payload })))
+      .then(({ response, payload }) => {
+        if (!response.ok) return;
+        if (payload.state === 'done') {
+          toast('服务端下载任务已完成', 'success', 5000);
+          loadServerJobs({ silent: true });
+          return;
+        }
+        if (payload.state === 'failed') {
+          toast(
+            `服务端下载失败${payload.log ? `，日志：${payload.log}` : logPath ? `，日志：${logPath}` : ''}`,
+            'error',
+            10000,
+          );
+          loadServerJobs({ silent: true });
+          return;
+        }
+        window.setTimeout(tick, 3000);
+      })
+      .catch(() => window.setTimeout(tick, 3000));
+  };
+  window.setTimeout(tick, 3000);
 }
 
 function mediaProxyUrl(url) {
@@ -263,7 +571,7 @@ function triggerBatchDownloads(files) {
   }
 
   toast(
-    `已开始发起 ${valid.length} 个文件的下载；若浏览器询问“允许下载多个文件”，请选择允许。`,
+    `已开始发起 ${valid.length} 个文件的浏览器下载；若浏览器询问“允许下载多个文件”，请选择允许。`,
     'info',
     6800,
   );
@@ -283,7 +591,8 @@ function triggerBatchDownloads(files) {
   });
 }
 
-function openBatchModal(items) {
+function openBatchModal(items, options = {}) {
+  const serverFolder = options.serverFolder || '';
   const downloadable = items.filter((item) => downloadList(item).length);
   if (!downloadable.length) {
     toast('当前结果没有可下载的媒体文件', 'error');
@@ -329,14 +638,21 @@ function openBatchModal(items) {
       <div class="batch-list" id="batch-list">${rows}</div>
       <div class="alert info compact">
         <svg viewBox="0 0 24 24"><use href="#i-info"/></svg>
-        <span>下载由浏览器接管。首次批量下载时，浏览器可能询问是否允许下载多个文件，请选择“允许”。图集会包含全部图片。</span>
+        <span>浏览器下载会逐个保存到浏览器默认目录；服务端下载会由本机 TikTokDownloader 保存到全局配置的 root${
+          serverFolder
+            ? `，并使用专属文件夹 <strong>${esc(serverFolder)}</strong>`
+            : ''
+        }。首次浏览器批量下载时，请允许本站下载多个文件。</span>
       </div>
     </div>`,
     footer: `<span class="batch-count" id="batch-foot-count">共 ${totalFiles} 个文件</span>
       <div class="spacer"></div>
       <button type="button" class="btn btn-ghost" data-close>取消</button>
-      <button type="button" class="btn btn-primary" id="batch-start">
-        <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>开始下载
+      <button type="button" class="btn" id="batch-start">
+        <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>浏览器下载所选
+      </button>
+      <button type="button" class="btn btn-primary" id="batch-server">
+        <svg viewBox="0 0 24 24"><use href="#i-folder"/></svg>服务端下载所选
       </button>`,
   });
 
@@ -351,6 +667,7 @@ function openBatchModal(items) {
     $('#batch-count').textContent = `已选择 ${selected.length} 个作品，共 ${files} 个文件`;
     $('#batch-foot-count').textContent = `共 ${files} 个文件`;
     $('#batch-start').disabled = selected.length === 0;
+    $('#batch-server').disabled = selected.length === 0;
   };
 
   boxes.forEach((box) => box.addEventListener('change', refresh));
@@ -374,6 +691,20 @@ function openBatchModal(items) {
     const files = mediaFilesOf(selected);
     closeModal();
     triggerBatchDownloads(files);
+  });
+
+  $('#batch-server').addEventListener('click', (event) => {
+    const selected = boxes
+      .filter((box) => box.checked)
+      .map((box) => downloadable[Number(box.dataset.batchIndex)]);
+    const urls = selected
+      .map((item) => serverDownloadTarget(item))
+      .filter(Boolean);
+    if (!urls.length) {
+      toast('所选作品没有可提交服务端下载的链接', 'error');
+      return;
+    }
+    submitServerBatchDownload(urls, serverFolder, event.currentTarget);
   });
 
   refresh();
@@ -767,7 +1098,7 @@ function renderDetail(item) {
                     </a>`;
                 return `<div class="gallery-item">
                   ${tile}
-                  <button type="button" class="gallery-dl" data-dl-index="${index}" title="下载第 ${index + 1} 个文件">
+                  <button type="button" class="gallery-dl" data-dl-index="${index}" title="浏览器下载第 ${index + 1} 个文件">
                     <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>
                   </button>
                   <span class="gallery-index">${index + 1}</span>
@@ -822,32 +1153,38 @@ function renderDetail(item) {
         </div>`
       : '';
 
+  const serverTarget = serverDownloadTarget(item);
   const actions = [
+    serverTarget
+      ? `<button type="button" class="btn btn-primary" data-server-download title="由本机 TikTokDownloader 按全局配置下载到 root 目录">
+          <svg viewBox="0 0 24 24"><use href="#i-folder"/></svg>服务端下载
+        </button>`
+      : '',
     isVideo && downloads[0]
-      ? `<button type="button" class="btn btn-primary" data-dl-index="0">
-          <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>下载视频
+      ? `<button type="button" class="btn" data-dl-index="0">
+          <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>浏览器下载视频
         </button>`
       : '',
     kind === 'gallery' && downloads.length
-      ? `<span class="badge">${isLivePhoto(item) ? '实况' : '图集'}共 ${downloads.length} 个文件，可在下方逐个下载</span>`
+      ? `<span class="badge">${isLivePhoto(item) ? '实况' : '图集'}共 ${downloads.length} 个文件，可在下方逐个浏览器下载</span>`
       : '',
     downloads.length > 1
       ? `<button type="button" class="btn" data-dl-all>
           <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>${
             kind === 'gallery'
-              ? `下载全部 ${downloads.length} 个${isLivePhoto(item) ? '文件' : '图片'}`
-              : `下载全部 ${downloads.length} 个文件`
+              ? `浏览器下载全部 ${downloads.length} 个${isLivePhoto(item) ? '文件' : '图片'}`
+              : `浏览器下载全部 ${downloads.length} 个文件`
           }
         </button>`
       : '',
     item.music_url
       ? `<button type="button" class="btn" data-dl-music>
-          <svg viewBox="0 0 24 24"><use href="#i-music"/></svg>下载音乐
+          <svg viewBox="0 0 24 24"><use href="#i-music"/></svg>浏览器下载音乐
         </button>`
       : '',
     item.static_cover
       ? `<button type="button" class="btn" data-dl-cover>
-          <svg viewBox="0 0 24 24"><use href="#i-image"/></svg>下载封面
+          <svg viewBox="0 0 24 24"><use href="#i-image"/></svg>浏览器下载封面
         </button>`
       : '',
     item.share_url
@@ -917,11 +1254,14 @@ function bindDetail(root, item) {
       const notice = document.createElement('div');
       notice.className = 'media-error';
       notice.innerHTML = `<svg viewBox="0 0 24 24"><use href="#i-alert"/></svg>
-        <span>浏览器无法直接播放该视频（可能是防盗链或编码问题），请使用下方「下载视频」。</span>`;
+        <span>浏览器无法直接播放该视频（可能是防盗链或编码问题），请使用下方「浏览器下载视频」或「服务端下载」。</span>`;
       holder.appendChild(notice);
     });
   }
 
+  root.querySelector('[data-server-download]')?.addEventListener('click', (event) => {
+    submitServerDownload(item, event.currentTarget);
+  });
   root.querySelectorAll('[data-dl-index]').forEach((button) => {
     button.addEventListener('click', () => {
       const index = Number(button.dataset.dlIndex);
@@ -999,9 +1339,16 @@ function renderItemCard(item, index) {
       <div class="item-actions">
         <button type="button" class="btn btn-sm" data-detail-index="${index}">查看详情</button>
         ${
+          serverDownloadTarget(item)
+            ? `<button type="button" class="btn btn-sm btn-primary" data-item-server-download="${index}" title="由本机 TikTokDownloader 按全局配置下载到 root 目录">
+                <svg viewBox="0 0 24 24"><use href="#i-folder"/></svg>服务端下载
+              </button>`
+            : ''
+        }
+        ${
           downloads.length
-            ? `<button type="button" class="btn btn-sm btn-primary" data-item-download="${index}">
-                <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>下载
+            ? `<button type="button" class="btn btn-sm" data-item-download="${index}">
+                <svg viewBox="0 0 24 24"><use href="#i-download"/></svg>浏览器下载
               </button>`
             : ''
         }
@@ -1015,6 +1362,12 @@ function bindItemCards(root, items) {
     button.addEventListener('click', () => {
       const item = items[Number(button.dataset.detailIndex)];
       if (item) openDetailModal(item);
+    });
+  });
+  root.querySelectorAll('[data-item-server-download]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const item = items[Number(button.dataset.itemServerDownload)];
+      if (item) submitServerDownload(item, button);
     });
   });
   root.querySelectorAll('[data-item-download]').forEach((button) => {
@@ -1059,6 +1412,9 @@ function renderItemsResult(container, response, options) {
   }
 
   const author = items[0]?.nickname;
+  const serverFolder = options.accountTab
+    ? accountServerFolder(items, options.accountTab)
+    : '';
   container.innerHTML = `${renderSummary({
     eyebrow: kindLabel,
     title: `共 ${items.length} 个作品`,
@@ -1072,7 +1428,7 @@ function renderItemsResult(container, response, options) {
 
   bindItemCards(container, items);
   container.querySelector('[data-batch-download]')?.addEventListener('click', () => {
-    openBatchModal(items);
+    openBatchModal(items, { serverFolder });
   });
   bindExportResult(
     container,
@@ -1587,6 +1943,7 @@ async function runAccount() {
       platform,
       kindLabel: '账号作品',
       source,
+      accountTab: payload.tab,
       filename: `DouK_account_${sanitizeName(secUid).slice(0, 24)}_${stamp()}.json`,
     });
     scrollToResult(result);
@@ -1919,7 +2276,12 @@ const SETTINGS_GROUPS = [
         wide: true,
         hint: '建议填写绝对路径，例如 D:\\Downloads\\DouK',
       },
-      { key: 'folder_name', label: '批量下载文件夹名', type: 'text' },
+      {
+        key: 'folder_name',
+        label: '单作品下载文件夹名',
+        type: 'text',
+        hint: '仅用于单个作品下载；账号批量下载会自动使用 UID{uid}_{nickname}_发布作品 等专属文件夹',
+      },
       {
         key: 'name_format',
         label: '文件命名格式',
@@ -2065,7 +2427,13 @@ const SETTINGS_GROUPS = [
       { key: 'mix_urls', label: '抖音合集列表', type: 'json' },
       { key: 'mix_urls_tiktok', label: 'TikTok 合辑列表', type: 'json' },
       { key: 'owner_url', label: '抖音账号标识', type: 'json' },
-      { key: 'owner_url_tiktok', label: 'TikTok 账号标识', type: 'json' },
+      {
+        key: 'owner_url_tiktok',
+        label: 'TikTok 账号标识',
+        type: 'json',
+        readonly: true,
+        hint: '当前服务端将该字段固定为 null（功能未生效），无法修改',
+      },
     ],
   },
 ];
@@ -2074,10 +2442,15 @@ const SETTINGS_FIELDS = SETTINGS_GROUPS.flatMap((group) => group.fields);
 
 function settingsDisplayValue(field) {
   if (field.type === 'tri') return '';
-  if (field.key === 'browser_info' || field.key === 'browser_info_tiktok') {
-    return state.settings?.[field.key] ?? {};
-  }
   const value = state.settings?.[field.key];
+  if (field.type === 'json') {
+    if (field.key === 'browser_info' || field.key === 'browser_info_tiktok') {
+      return value ?? {};
+    }
+    // JSON 字段的 null 必须显示为 null，不能转成空字符串：
+    // 否则 textarea 会变成 ""，保存时提交空字符串，触发服务端 422。
+    return value === undefined ? null : value;
+  }
   if (value === undefined || value === null) return '';
   return value;
 }
@@ -2114,9 +2487,10 @@ function fieldControl(field) {
 
   if (field.type === 'json') {
     const text = JSON.stringify(value ?? null, null, 2);
+    const readonly = field.readonly ? ' readonly' : '';
     return `<div class="field json-field">
       <label for="${id}">${esc(field.label)}</label>
-      <textarea class="textarea" id="${id}" data-setting="${esc(field.key)}" spellcheck="false" rows="6">${esc(text)}</textarea>
+      <textarea class="textarea" id="${id}" data-setting="${esc(field.key)}" spellcheck="false" rows="6"${readonly}>${esc(text)}</textarea>
       ${field.hint ? `<span class="hint">${esc(field.hint)}</span>` : ''}
     </div>`;
   }
@@ -2210,6 +2584,8 @@ function parseJsonEditor(element, field) {
     if (field.key === 'browser_info' || field.key === 'browser_info_tiktok') return {};
     if (field.key.startsWith('cookie')) return '';
     if (field.key.endsWith('_urls') || field.key.endsWith('_urls_tiktok')) return [];
+    // owner_url 不接受 null，空值按空对象提交（服务端会视为不修改）。
+    if (field.key === 'owner_url') return {};
     return null;
   }
   try {
@@ -2246,7 +2622,7 @@ function collectSettingsChanges(form) {
 
   for (const field of SETTINGS_FIELDS) {
     const element = nodes.get(field.key);
-    if (!element) continue;
+    if (!element || field.readonly) continue;
     const key = field.key;
 
     if (field.type === 'tri') {
@@ -2617,6 +2993,8 @@ function navigate(view, { fromHash = false } = {}) {
 
   if (view === 'settings') loadSettings();
   if (view === 'parse') renderHistory();
+  if (view === 'tasks') startTasksPolling();
+  else stopTasksPolling();
 }
 
 /* ------------------------------------------------------------- interactions */
@@ -2738,6 +3116,7 @@ function bindEvents() {
   });
 
   $('#clear-history').addEventListener('click', clearHistory);
+  $('#tasks-refresh')?.addEventListener('click', () => loadServerJobs());
   $('#settings-reload').addEventListener('click', () => loadSettings(true));
   $('#settings-save').addEventListener('click', saveSettings);
   $('#settings-export').addEventListener('click', () => {
@@ -2767,6 +3146,7 @@ async function init() {
   refreshStatus();
 
   navigate(location.hash.slice(1) || 'parse', { fromHash: true });
+  if (state.view !== 'tasks') loadServerJobs({ silent: true });
 }
 
 document.addEventListener('DOMContentLoaded', init);
