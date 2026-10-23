@@ -11,7 +11,8 @@ browser downloads it reliably instead of opening it inline.
 
 A /server-download endpoint launches server_download.py with the local
 TikTokDownloader project's virtualenv, so the project itself saves files into
-its configured `root` directory. The API server is never modified.
+its configured `root` directory. The bundled TikTokDownloader source contains
+the settings-persistence fix; see README "全局配置".
 """
 
 from __future__ import annotations

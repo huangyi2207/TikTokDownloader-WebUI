@@ -2255,15 +2255,6 @@ async function runSearch() {
 
 /* ---------------------------------------------------------------- settings */
 
-const UNREPORTED_KEYS = new Set([
-  'timeout',
-  'live_qualities',
-  'douyin_platform',
-  'tiktok_platform',
-  'browser_info',
-  'browser_info_tiktok',
-]);
-
 const SETTINGS_GROUPS = [
   {
     title: '目录与命名',
@@ -2338,7 +2329,7 @@ const SETTINGS_GROUPS = [
         key: 'timeout',
         label: '请求超时（秒）',
         type: 'number',
-        hint: '当前服务端不回显该值，留空表示不修改（默认 10 秒）',
+        hint: '留空保留当前值（默认 10 秒）',
       },
       { key: 'max_retry', label: '最大重试次数', type: 'number' },
       { key: 'max_pages', label: '最大采集页数', type: 'number' },
@@ -2346,8 +2337,8 @@ const SETTINGS_GROUPS = [
         key: 'live_qualities',
         label: '直播默认清晰度',
         type: 'text',
-        placeholder: '当前值未回显，留空不修改',
-        hint: '例如 FULL_HD1、HD1、1、2',
+        placeholder: '例如 FULL_HD1、HD1、1、2',
+        hint: '留空表示由服务端自动选择',
       },
       { key: 'ffmpeg', label: 'ffmpeg 路径', type: 'text' },
       { key: 'run_command', label: '启动命令参数', type: 'text', wide: true },
@@ -2361,13 +2352,13 @@ const SETTINGS_GROUPS = [
         key: 'douyin_platform',
         label: '抖音平台',
         type: 'tri',
-        hint: '当前服务端不回显该值，保持现状即可',
+        hint: '禁用后停止请求与更新抖音平台数据',
       },
       {
         key: 'tiktok_platform',
         label: 'TikTok 平台',
         type: 'tri',
-        hint: '当前服务端不回显该值，保持现状即可',
+        hint: '禁用后停止请求与更新 TikTok 平台数据',
       },
       { key: 'proxy', label: '抖音代理', type: 'text', placeholder: 'http://127.0.0.1:7890' },
       { key: 'proxy_tiktok', label: 'TikTok 代理', type: 'text', placeholder: 'http://127.0.0.1:7890' },
@@ -2441,8 +2432,12 @@ const SETTINGS_GROUPS = [
 const SETTINGS_FIELDS = SETTINGS_GROUPS.flatMap((group) => group.fields);
 
 function settingsDisplayValue(field) {
-  if (field.type === 'tri') return '';
   const value = state.settings?.[field.key];
+  if (field.type === 'tri') {
+    if (value === true) return 'true';
+    if (value === false) return 'false';
+    return '';
+  }
   if (field.type === 'json') {
     if (field.key === 'browser_info' || field.key === 'browser_info_tiktok') {
       return value ?? {};
@@ -2478,8 +2473,8 @@ function fieldControl(field) {
       <label for="${id}">${esc(field.label)}</label>
       <select class="select" id="${id}" data-setting="${esc(field.key)}">
         <option value="">保持现状</option>
-        <option value="true">启用</option>
-        <option value="false">禁用</option>
+        <option value="true" ${value === 'true' ? 'selected' : ''}>启用</option>
+        <option value="false" ${value === 'false' ? 'selected' : ''}>禁用</option>
       </select>
       ${field.hint ? `<span class="hint">${esc(field.hint)}</span>` : ''}
     </div>`;
@@ -2626,14 +2621,18 @@ function collectSettingsChanges(form) {
     const key = field.key;
 
     if (field.type === 'tri') {
-      if (element.value !== '') changes[key] = element.value === 'true';
+      if (element.value === '') continue;
+      const value = element.value === 'true';
+      if (!valuesEqual(value, baseline[key])) changes[key] = value;
       continue;
     }
 
     if (field.type === 'json') {
       const value = parseJsonEditor(element, field);
       if (key === 'browser_info' || key === 'browser_info_tiktok') {
-        changes[key] = normalizeBrowserInfo(value, field);
+        // 空对象表示“不修改”，避免用默认值覆盖服务端的浏览器信息
+        const info = normalizeBrowserInfo(value, field);
+        if (Object.keys(info).length) changes[key] = info;
       } else if (!valuesEqual(value, baseline[key])) {
         changes[key] = value;
       }
@@ -2642,7 +2641,9 @@ function collectSettingsChanges(form) {
 
     if (field.type === 'number') {
       if (key === 'timeout') {
-        if (element.value.trim() !== '') changes[key] = Number(element.value);
+        if (element.value.trim() === '') continue;
+        const value = Number(element.value);
+        if (!valuesEqual(value, baseline[key])) changes[key] = value;
         continue;
       }
       const value = element.value.trim() === '' ? null : Number(element.value);
@@ -2658,20 +2659,14 @@ function collectSettingsChanges(form) {
     }
 
     let value = element.value;
-    if (UNREPORTED_KEYS.has(key)) {
-      if (key === 'live_qualities') {
-        if (element.value.trim() !== '') changes[key] = element.value;
-      }
-      continue;
-    }
     if (element.value === '' && (baseline[key] === null || baseline[key] === undefined)) {
       value = null;
     }
     if (!valuesEqual(value, baseline[key])) changes[key] = value;
   }
 
-  if (!changes.browser_info) changes.browser_info = {};
-  if (!changes.browser_info_tiktok) changes.browser_info_tiktok = {};
+  // 兼容原版 API：其 Settings 模型要求显式提供这两个字段，
+  // 空对象在服务端表示“不修改”。
   return changes;
 }
 
@@ -2688,12 +2683,47 @@ async function saveSettings() {
     return;
   }
 
+  if (!Object.keys(changes).length) {
+    toast('没有需要保存的修改', 'info');
+    return;
+  }
+
+  const baseline = state.settings;
+  // 用户实际修改的字段（不含下面补上的兼容字段）
+  const changedKeys = Object.keys(changes);
+
+  // 兼容原版 API：其 Settings 模型要求显式提供这两个字段，
+  // 空对象在服务端表示“不修改”。
+  if (!hasOwn(changes, 'browser_info')) changes.browser_info = {};
+  if (!hasOwn(changes, 'browser_info_tiktok')) changes.browser_info_tiktok = {};
+
   const button = $('#settings-save');
   setButtonBusy(button, true, '保存中…');
   try {
-    const updated = await api('/settings', changes);
-    state.settings = { ...state.settings, ...(updated || {}), ...changes };
-    toast('配置已保存并生效', 'success');
+    await api('/settings', changes);
+    // 以服务端实际配置为准重新渲染，避免只在前端“看起来保存成功”
+    const updated = await api('/settings');
+    state.settings = updated || baseline;
+    renderSettings();
+
+    // 浏览器信息按设计不由 /settings 回显，无法校验，跳过
+    const skipped = new Set(['browser_info', 'browser_info_tiktok']);
+    const ignored = changedKeys.filter(
+      (key) =>
+        !skipped.has(key) &&
+        hasOwn(state.settings, key) &&
+        valuesEqual(state.settings[key], baseline[key]) &&
+        !valuesEqual(changes[key], baseline[key]),
+    );
+    if (ignored.length) {
+      toast(
+        `服务端未应用以下配置：${ignored.join('、')}。请确认 API 服务已更新并重启。`,
+        'error',
+        9000,
+      );
+    } else {
+      toast('配置已保存并生效', 'success');
+    }
     refreshStatus();
   } catch (error) {
     toast(errorText(error), 'error', 5600);

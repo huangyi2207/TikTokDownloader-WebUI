@@ -2,11 +2,12 @@
 
 面向 [JoeanAmier/TikTokDownloader](https://github.com/JoeanAmier/TikTokDownloader) **API 模式**的本地可视化 Web 界面。
 
-本目录是独立的配套工具，**不修改原项目任何源码**，也不需要原 API 服务开启 CORS。
+本目录是独立的配套工具，前端不需要原 API 服务开启 CORS。
 
 - 前端：原生 HTML / CSS / JavaScript，无构建、无 CDN、可离线使用
 - 后端：Python 标准库，**无第三方依赖**
 - 自带反向代理、媒体防盗链代理、流式下载与服务端下载工作进程
+- 附带的 `TikTokDownloader/` 已包含「全局配置」保存修复（原版 API 的 `POST /settings` 只改内存、不写 `settings.json`，且普通字段实际未生效）；详见下方 [全局配置](#全局配置)。
 
 ***
 
@@ -113,8 +114,11 @@ http://127.0.0.1:18080
 
 - **服务端下载**
   - Web UI 会在本机启动 `server_download.py` 工作进程，调用 TikTokDownloader 项目自身的下载器，按全局配置的 `root`、文件夹 / 命名规则、Cookie、代理、音乐 / 封面等设置保存文件。
-  - 不会修改 TikTokDownloader 的任何源码；工作进程只导入项目模块并调用其现有下载逻辑。
+  - 工作进程只导入项目模块并调用其现有下载逻辑，不会改动 TikTokDownloader 的源码。
   - 账号作品的批量下载会保存到 `root/UID{uid}_{nickname}_发布作品`（喜欢页为 `_喜欢作品`）。
+  - 链接中已包含作品 ID 时不再额外请求页面解析；短链接与作品详情按 4 路并发获取。
+  - 工作进程默认跳过上游元数据请求之间的人为随机延时（平均约 6 秒，文件下载本身不受影响）。若担心触发平台风控，可在启动 Web UI 前设置环境变量 `DOUK_KEEP_DELAY=1` 恢复上游限速。
+  - 日志每行前的 `[ x.xs]` 为该阶段耗时，可用于定位慢在初始化、解析还是下载。
   - TikTokDownloader 的 API 模式只提取数据、不会下载文件，因此服务端下载要求 Web UI 与 TikTokDownloader 项目位于同一台机器。
   - 默认项目路径为 `./TikTokDownloader`，可通过 `python server.py --project <路径>` 或环境变量 `DOUK_PROJECT` 修改。
   - 全局配置中的 `download` 必须为启用状态，否则按钮会提示并拒绝提交。
@@ -175,12 +179,14 @@ http://127.0.0.1:18080
 ### 全局配置
 
 - 页面加载时会读取服务端 `/settings`，保存时 **只提交发生变化的字段**。
+- 保存会同时更新 API 运行时内存与 `TikTokDownloader/Volume/settings.json`，重启 API 后仍然生效。
 - Cookie、浏览器信息等敏感数据仅在本机浏览器与本地 API 之间传输。
-- 当前 API 版本不会回显 `timeout`、`live_qualities`、平台开关和浏览器信息：
-  - 此类字段留空 / 保持现状即可，不会覆盖服务端已有配置；
-  - 为了兼容服务端实现，保存时会始终附带空的 `browser_info` 对象。
+- `timeout`、`live_qualities`、抖音 / TikTok 平台开关现已随 `/settings` 回显。
+- 浏览器信息仍不回显实际值；留空 / 保持 `{}` 不会修改服务端已有配置。
 - 当前服务端把 `owner_url_tiktok` 固定为 `null`（该功能未生效），设置页以只读方式展示，不会提交该字段。
 - 修改前建议先点击 **导出** 备份当前配置。
+- 保存后前端会重新读取 `/settings` 并以服务端实际值为准渲染；若 API 尚未重启到修复版本，会提示「服务端未应用以下配置」。
+- 修复涉及的文件：`src/application/main_server.py`、`src/config/parameter.py`、`src/models/settings.py`。使用其他位置的 TikTokDownloader 时，请同步这些修改后重启 API 服务。
 
 ### API 令牌
 
@@ -288,10 +294,13 @@ start_webui.bat --port 8081         # Windows
 - 任务列表保存在 Web UI 进程内存中，重启 `server.py` 后会清空；日志文件仍保留在 `logs/` 目录。
 - 确认 Web UI 已重启到最新版本（需要 `server.py` 支持 `/server-download/jobs`）。
 
-**保存设置时报错 / 某些字段为空**
+**保存设置后没有生效 / 提示“服务端未应用以下配置”**
 
-- 当前服务端不会回显 `timeout`、`live_qualities`、平台开关、浏览器信息；留空或保持现状即可。
+- 需要重启 API 服务，使其加载本项目附带的修复（`src/application/main_server.py`、`src/config/parameter.py`、`src/models/settings.py`）。
+- 确认 5555 端口运行的是本目录下的 `TikTokDownloader`；若使用其他副本，请同步上述文件后重启。
+- 保存后页面会重新读取 `/settings` 并以服务端实际值为准；被服务端校验拒绝的值（如无效代理、无效目录）会列在该提示中。
 - 若返回 403，请先配置令牌。
+- 浏览器信息仍不在 `/settings` 中回显；保持 `{}` 不会修改服务端已有配置。
 - 服务端设置接口会重新创建网络客户端，保存后短暂等待即可。
 
 **搜索 / 评论没有数据**
