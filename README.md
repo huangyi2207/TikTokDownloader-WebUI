@@ -7,7 +7,7 @@
 - 前端：原生 HTML / CSS / JavaScript，无构建、无 CDN、可离线使用
 - 后端：Python 标准库，**无第三方依赖**
 - 自带反向代理、媒体防盗链代理、流式下载与服务端下载工作进程
-- 附带的 `TikTokDownloader/` 已包含「全局配置」保存修复（原版 API 的 `POST /settings` 只改内存、不写 `settings.json`，且普通字段实际未生效）；详见下方 [全局配置](#全局配置)。
+- 附带的 `TikTokDownloader/`（来自 [huangyi2207/TikTokDownloader](https://github.com/huangyi2207/TikTokDownloader)）已包含「全局配置」保存修复（原版 API 的 `POST /settings` 只改内存、不写 `settings.json`，且普通字段实际未生效）；详见下方 [全局配置](#全局配置)。
 
 ***
 
@@ -31,11 +31,13 @@
 
 ## 环境要求
 
-1. **TikTokDownloader 已以 API 模式运行**，默认地址为 `http://127.0.0.1:5555`。
-   TikTokDownloader参考文档 [TikTokDownloader#快速入门](https://github.com/JoeanAmier/TikTokDownloader#%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8)
+1. **Python 3.12 或更高版本**：TikTokDownloader 要求 Python ≥ 3.12；Web UI 自身只使用标准库（3.10+ 即可），两者共用一个解释器最省事。
+2. **TikTokDownloader 与 Web UI 在同一台机器上**，且 TikTokDownloader 以 **Web API 模式** 运行（默认地址 `http://127.0.0.1:5555`）。
    - 可访问 <http://127.0.0.1:5555/docs> 或 <http://127.0.0.1:5555/redoc> 确认 API 正常。
-2. **Python 3.10 或更高版本**（仅使用标准库）。
+   - TikTokDownloader 参考文档 [TikTokDownloader#快速入门](https://github.com/JoeanAmier/TikTokDownloader#%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8)
 3. 现代浏览器（Chrome / Edge / Firefox 等）。
+
+按下方 [快速开始](#快速开始) 从零克隆、安装、启动即可跑通全流程。
 
 ***
 
@@ -48,39 +50,110 @@ TikTokDownloader-WebUI/
 ├── start_webui.bat       # Windows 启动脚本
 ├── logs/                 # 服务端下载日志（运行时创建）
 ├── README.md
-└── static/
-    ├── index.html
-    ├── css/style.css
-    └── js/app.js
+├── static/
+│   ├── index.html
+│   ├── css/style.css
+│   └── js/app.js
+└── TikTokDownloader/     # 克隆的同级项目（默认路径，可省略改用 --project）
+    ├── main.py
+    ├── requirements.txt
+    ├── .venv/            # 按「快速开始」第 2 步创建
+    └── src/
 ```
 
 ***
 
 ## 快速开始
 
-### 第 1 步：启动 API 服务
+按顺序执行以下 5 步即可从零跑起来。Windows 用 PowerShell / Git Bash，Linux / macOS 用终端，命令基本一致（仅虚拟环境路径不同）。
 
-先按 TikTokDownloader 的文档启动 **API 模式**，确保其监听在 `127.0.0.1:5555`。
+### 第 1 步：克隆 Web UI 与 TikTokDownloader
 
-### 第 2 步：启动 Web UI
-
-#### Windows用户可以在资源管理器中双击 `start_webui.bat`
-
-#### 命令行执行：
-
-```Shell
-python server.py #或 python3 server.py
+```bash
+git clone https://github.com/huangyi2207/TikTokDownloader-WebUI
+cd TikTokDownloader-WebUI
+git clone https://github.com/huangyi2207/TikTokDownloader
 ```
 
-「服务端下载」会调用本机的 TikTokDownloader 项目。若项目不在默认路径 `./TikTokDownloader`，请使用：
+`TikTokDownloader` 需要克隆在 Web UI 根目录下、并保持目录名不变，Web UI 默认就从 `./TikTokDownloader` 调用它。完成后目录应如下：
 
-```Shell
+```text
+TikTokDownloader-WebUI/
+├── server.py
+├── server_download.py
+├── start_webui.bat
+├── static/
+├── README.md
+└── TikTokDownloader/        # 上一步克隆的 TikTokDownloader
+    ├── main.py
+    ├── requirements.txt
+    └── src/
+```
+
+> 想放到其他位置也可以，启动 Web UI 时用 `--project <路径>` 或环境变量 `DOUK_PROJECT` 指定，详见 [配置参数](#配置参数)。
+
+### 第 2 步：安装 TikTokDownloader 依赖
+
+TikTokDownloader 需要 Python **3.12+**。虚拟环境必须建在 `TikTokDownloader/.venv` —— Web UI 的「服务端下载」会用它启动下载进程，缺失时会提示“未找到 TikTokDownloader 项目或其 .venv”。
+
+Windows：
+
+```bat
+cd TikTokDownloader
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -U pip
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+cd ..
+```
+
+Linux / macOS：
+
+```bash
+cd TikTokDownloader
+python3 -m venv .venv
+.venv/bin/python -m pip install -U pip
+.venv/bin/python -m pip install -r requirements.txt
+cd ..
+```
+
+> 已安装 [uv](https://github.com/astral-sh/uv) 时，也可在 `TikTokDownloader` 目录执行 `uv sync`，同样会在该目录生成 `.venv`。
+> 下载缓慢可换国内镜像（如 `-i https://pypi.tuna.tsinghua.edu.cn/simple`）；若镜像报 `No matching distribution found`，改用官方源 `-i https://pypi.org/simple` 重试。
+
+### 第 3 步：以 Web API 模式启动 TikTokDownloader
+
+```bat
+cd TikTokDownloader
+.venv\Scripts\python.exe main.py
+```
+
+Linux / macOS 把最后一行换成 `.venv/bin/python main.py`。
+
+首次启动会要求选择语言并输入 `YES` 确认免责声明，之后在功能菜单中选择 **「Web API 模式」**（列表第 7 项）。出现以下提示即启动成功：
+
+```text
+访问 http://127.0.0.1:5555/docs 或者 http://127.0.0.1:5555/redoc 可以查阅 API 模式说明文档！
+```
+
+首次运行会在 `TikTokDownloader/Volume/` 下生成 `settings.json`，Cookie、下载目录等配置都在这里维护。**这个终端窗口需要保持运行**，不要关闭（后续可用 `Ctrl+C` 退出）。
+
+### 第 4 步：启动 Web UI
+
+另开一个终端，回到项目根目录：
+
+```bash
+cd ..                 # 若上一个终端仍停在 TikTokDownloader 目录
+python server.py      # 或 python3 server.py
+```
+
+Windows 也可以在资源管理器中双击 `start_webui.bat`。Web UI 只用标准库，无需再安装依赖。
+
+若 TikTokDownloader 不在默认路径：
+
+```bash
 python server.py --project "/path/to/TikTokDownloader"
 ```
 
-也可以设置环境变量 `DOUK_PROJECT`。
-
-### 第 3 步：打开页面
+### 第 5 步：打开页面
 
 浏览器访问：
 
@@ -88,7 +161,9 @@ python server.py --project "/path/to/TikTokDownloader"
 http://127.0.0.1:18080
 ```
 
-页面左下角显示 **API 已连接** 即表示代理正常。若显示未连接，请检查第 1 步。
+页面左下角显示 **API 已连接** 即表示前端与 API 都正常，可以开始解析作品。
+
+> 使用「服务端下载」前，请确认全局配置中的 `download` 已启用（默认启用），否则按钮会提示并拒绝提交。
 
 ***
 
@@ -217,10 +292,10 @@ python3 server.py [--host 127.0.0.1] [--port 18080] [--api http://127.0.0.1:5555
 
 ```bash
 # Linux / macOS：换端口，并连接远程 API
-./start_webui.sh --port 8080 --api http://192.168.1.10:5555
+python3 server.py --port 8080 --api http://192.168.1.10:5555
 
 # 通过环境变量
-DOUK_WEB_PORT=8080 DOUK_API=http://127.0.0.1:5555 ./start_webui.sh
+DOUK_WEB_PORT=8080 DOUK_API=http://127.0.0.1:5555 python3 server.py
 
 # Windows
 start_webui.bat --port 8080
@@ -265,8 +340,8 @@ start_webui.bat --port 8080
 **端口 18080 被占用**
 
 ```bash
-./start_webui.sh --port 8081        # Linux / macOS
-start_webui.bat --port 8081         # Windows
+python3 server.py --port 8081        # Linux / macOS
+start_webui.bat --port 8081          # Windows
 ```
 
 **视频无法播放 / 图片破图**
@@ -281,6 +356,7 @@ start_webui.bat --port 8081         # Windows
 **服务端下载提示“未找到 TikTokDownloader 项目”**
 
 - Web UI 启动时通过 `--project` 或环境变量 `DOUK_PROJECT` 定位项目目录，路径下需存在 `src` 和 `.venv`。
+- `.venv` 缺失：按 [快速开始](#快速开始) 第 2 步在 `TikTokDownloader` 目录创建虚拟环境并安装依赖；不要建在 Web UI 根目录。
 - 服务端下载需要在 Web UI 所在机器上运行 TikTokDownloader 项目；仅启动 5555 端口的 API 模式无法让 API 自己下载文件。
 
 **服务端下载失败**
