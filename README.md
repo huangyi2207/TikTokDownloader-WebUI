@@ -113,7 +113,7 @@ cd TikTokDownloader
 
 Linux / macOS 把最后一行换成 `.venv/bin/python main.py`。
 
-首次启动会要求选择语言并输入 `YES` 确认免责声明，之后在功能菜单中选择 **「Web API 模式」**（列表第 7 项）。出现以下提示即启动成功：
+首次启动会要求选择语言并输入 `YES` 确认免责声明，配置好平台Cookie，之后在功能菜单中选择 **「Web API 模式」**（列表第 7 项）。出现以下提示即启动成功：
 
 ```text
 访问 http://127.0.0.1:5555/docs 或者 http://127.0.0.1:5555/redoc 可以查阅 API 模式说明文档！
@@ -145,7 +145,7 @@ python server.py --project "/path/to/TikTokDownloader"
 http://127.0.0.1:18080
 ```
 
-页面左下角显示 **API 已连接** 即表示前端与 API 都正常，可以开始解析作品。
+页面左下角显示 **API 已连接** 即表示前端与 API 都正常，就可以开始解析作品。
 
 > 使用「服务端下载」前，请确认全局配置中的 `download` 已启用（默认启用），否则按钮会提示并拒绝提交。
 
