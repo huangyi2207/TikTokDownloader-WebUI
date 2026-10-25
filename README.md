@@ -113,7 +113,7 @@ cd TikTokDownloader
 
 Linux / macOS 把最后一行换成 `.venv/bin/python main.py`。
 
-首次启动会要求选择语言并输入 `YES` 确认免责声明，配置好平台Cookie，Cookie配置参考[这里]([https://github.com/huangyi2207/TikTokDownloader#%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8](https://github.com/huangyi2207/TikTokDownloader/blob/master/docs/Cookie%E8%8E%B7%E5%8F%96%E6%95%99%E7%A8%8B.md))之后在功能菜单中选择 **「Web API 模式」**（列表第 7 项）。出现以下提示即启动成功：
+首次启动会要求选择语言并输入 `YES` 确认免责声明，配置好平台Cookie，Cookie配置参考[这里](https://github.com/huangyi2207/TikTokDownloader/blob/master/docs/Cookie%E8%8E%B7%E5%8F%96%E6%95%99%E7%A8%8B.md)之后在功能菜单中选择 **「Web API 模式」**（列表第 7 项）。出现以下提示即启动成功：
 
 ```text
 访问 http://127.0.0.1:5555/docs 或者 http://127.0.0.1:5555/redoc 可以查阅 API 模式说明文档！
