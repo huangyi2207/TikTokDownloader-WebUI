@@ -1,13 +1,11 @@
 # TikTokDownloader Web UI
 
-面向 [JoeanAmier/TikTokDownloader](https://github.com/JoeanAmier/TikTokDownloader) **API 模式**的本地可视化 Web 界面。
-
-本目录是独立的配套工具，前端不需要原 API 服务开启 CORS。
+面向 [huangyi2207/TikTokDownloader](https://github.com/huangyi2207/TikTokDownloader) **API 模式**的本地可视化 Web 界面，基于[JoeanAmier/TikTokDownloader](https://github.com/JoeanAmier/TikTokDownloader)修改。
 
 - 前端：原生 HTML / CSS / JavaScript，无构建、无 CDN、可离线使用
 - 后端：Python 标准库，**无第三方依赖**
 - 自带反向代理、媒体防盗链代理、流式下载与服务端下载工作进程
-- 附带的 `TikTokDownloader/`（来自 [huangyi2207/TikTokDownloader](https://github.com/huangyi2207/TikTokDownloader)）已包含「全局配置」保存修复（原版 API 的 `POST /settings` 只改内存、不写 `settings.json`，且普通字段实际未生效）；详见下方 [全局配置](#全局配置)。
+- 需搭配[huangyi2207/TikTokDownloader](https://github.com/huangyi2207/TikTokDownloader)使用
 
 ***
 
