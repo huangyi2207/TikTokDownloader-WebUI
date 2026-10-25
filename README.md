@@ -73,20 +73,7 @@ cd TikTokDownloader-WebUI
 git clone https://github.com/huangyi2207/TikTokDownloader
 ```
 
-`TikTokDownloader` 需要克隆在 Web UI 根目录下、并保持目录名不变，Web UI 默认就从 `./TikTokDownloader` 调用它。完成后目录应如下：
-
-```text
-TikTokDownloader-WebUI/
-├── server.py
-├── server_download.py
-├── start_webui.bat
-├── static/
-├── README.md
-└── TikTokDownloader/        # 上一步克隆的 TikTokDownloader
-    ├── main.py
-    ├── requirements.txt
-    └── src/
-```
+`TikTokDownloader` 需要克隆在 Web UI 根目录下、并保持目录名不变，Web UI 默认就从 `./TikTokDownloader` 调用它。
 
 > 想放到其他位置也可以，启动 Web UI 时用 `--project <路径>` 或环境变量 `DOUK_PROJECT` 指定，详见 [配置参数](#配置参数)。
 
@@ -136,11 +123,10 @@ Linux / macOS 把最后一行换成 `.venv/bin/python main.py`。
 
 ### 第 4 步：启动 Web UI
 
-另开一个终端，回到项目根目录：
+另开一个终端，回到TikTokDownloader-WebUI项目目录：
 
 ```bash
-cd ..                 # 若上一个终端仍停在 TikTokDownloader 目录
-python server.py      # 或 python3 server.py
+python server.py      #Linux/macOS执行python3 ./server.py
 ```
 
 Windows 也可以在资源管理器中双击 `start_webui.bat`。Web UI 只用标准库，无需再安装依赖。
